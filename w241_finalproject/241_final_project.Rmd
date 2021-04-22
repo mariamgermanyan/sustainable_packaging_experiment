@@ -1,0 +1,165 @@
+---
+title: "241_project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Load packages**
+```{r}
+library(tidyverse)
+library(dbplyr)
+library(data.table)
+```
+
+# Load in the data:
+
+**Data from Shopify orders:**
+```{r}
+# all_contacts = all of the emails in the address book
+all_contacts <- fread("casoncouture_contacts.csv")
+
+# splitting the emails into treatment & control groups
+treatment_emails <- fread("treatment_emails.csv")
+control_emails <- fread("control_emails.csv")
+
+# shopify_orders since the start of the campaign
+shopify_orders <- fread("final_shopify.csv")
+
+# constant_contact shows the click through & open rate of each email sent in the campaign
+constant_contact <- fread("constant_contact.csv")
+
+```
+
+
+```{r}
+all_contacts
+shopify_orders
+constant_contact
+```
+```{r}
+shopify_orders <- drop_na(shopify_orders, any_of('Paid at'))
+shopify_orders <- shopify_orders[shopify_orders$`Paid at` >= '2021-03-08']
+shopify_orders$treatment <- shopify_orders[ , ifelse(shopify_orders$Email %in% treatment_emails$emails, 1, 0)]
+shopify_orders
+```
+
+# ATEs
+```{r}
+p1<-hist(shopify_orders$Total[shopify_orders$treatment == 1])
+p2<-hist(shopify_orders$Total[shopify_orders$treatment == 0])
+plot( p1, col=rgb(0,0,1,1/4), ylim = c(0,15),xlim = c(0,400) , main = 'Total amount spent based on treatment or control', xlab = 'Total amount spent')  # first histogram
+plot( p2, col=rgb(1,0,0,1/4), add=T, ylim =c(0,15),xlim = c(0,400) )  # second
+legend(300,10, legend=c("Treatment", "Control"), col=c(rgb(0,0,1,1/4), rgb(1,0,0,1/4)), lty=1:2, cex=0.8)
+```
+
+**number of orders**
+```{r}
+#num orders treatment
+total_treatment_orders <- sum(shopify_orders$treatment == 1)
+#num orders control
+total_control_orders <- sum(shopify_orders$treatment == 0)
+
+paste('Total Number of Orders:', total_treatment_orders+total_control_orders)
+paste('ATE Number of Orders:', total_treatment_orders-total_control_orders)
+```
+
+**ATE for revenue of orders in treatment & control**
+```{r}
+# total revenue treatment
+avg_treatment_revenue <- sum(shopify_orders$Total[shopify_orders$treatment == 1])
+
+#total revenue control
+avg_control_revenue <- sum(shopify_orders$Total[shopify_orders$treatment == 0])
+
+ATE_revenue <- avg_treatment_revenue - avg_control_revenue
+ATE_revenue
+```
+```{r}
+# randomization inference 
+ri <- rep(NA, 1000)
+for(x in 1:1000) {
+  ri[x] <- shopify_orders[ , .(the_mean = sum(Total)), keyby = .(sample(treatment))][ , diff(the_mean)]
+}
+```
+
+```{r}
+pvalue <- function(ri, ATE) {
+total <- (sum(ri >= ATE) + sum(ri <= -ATE)) / length(ri)
+return(total)
+}
+pvalue(ri, ATE_revenue)
+```
+
+```{r}
+#hopefully get more data for control 
+t.test(shopify_orders$Total[shopify_orders$treatment == 1], shopify_orders$Total[shopify_orders$treatment == 0])
+```
+
+**ATE for click through rate in treatment & control**
+```{r}
+# click through rate treatment
+avg_treatment_click <- mean(constant_contact$click_rate[constant_contact$treat_or_control == 1])
+
+# click through rate control
+avg_control_click <- mean(constant_contact$click_rate[constant_contact$treat_or_control == 0])
+
+ATE_click <- avg_treatment_click - avg_control_click
+ATE_click
+```
+
+```{r}
+# randomization inference 
+# click rate
+
+ri_click <- rep(NA, 1000)
+for(x in 1:1000) {
+  ri_click[x] <- constant_contact[ , .(the_mean = mean(click_rate)), keyby = .(sample(treat_or_control))][ , diff(the_mean)]
+}
+```
+
+```{r}
+pvalue <- function(ri, ATE) {
+total <- (sum(ri >= ATE) + sum(ri <= -ATE)) / length(ri)
+return(total)
+}
+pvalue(ri_click, ATE_click)
+```
+```{r}
+t.test(constant_contact$click_rate[constant_contact$treat_or_control == 1], constant_contact$click_rate[constant_contact$treat_or_control == 0])
+
+```
+
+**ATE for open rate in treatment & control**
+```{r}
+# click through rate treatment
+avg_treatment_open <- mean(constant_contact$open_rate[constant_contact$treat_or_control == 1])
+
+# click through rate control
+avg_control_open <- mean(constant_contact$open_rate[constant_contact$treat_or_control == 0])
+
+ATE_open <- avg_treatment_open - avg_control_open
+ATE_open
+```
+```{r}
+# randomization inference 
+# click rate
+
+ri_open <- rep(NA, 1000)
+for(x in 1:1000) {
+  ri_open[x] <- constant_contact[ , .(the_mean = mean(open_rate)), keyby = .(sample(treat_or_control))][ , diff(the_mean)]
+}
+```
+
+```{r}
+pvalue <- function(ri, ATE) {
+total <- (sum(ri >= ATE)) / length(ri)
+return(total)
+}
+pvalue(ri_open, ATE_open)
+```
+```{r}
+t.test(constant_contact$open_rate[constant_contact$treat_or_control == 1],constant_contact$open_rate[constant_contact$treat_or_control == 0])
+```
